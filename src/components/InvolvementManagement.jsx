@@ -1,266 +1,350 @@
-import React, { useState } from 'react';
-import { Link2, Edit2, Trash2, X, Save, Plus, Calendar } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  Calendar,
+  Edit2,
+  GitBranch,
+  Plus,
+  Save,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { formatDate, getElapsedMonths } from '../utils/finance';
 
-const InvolvementManagement = ({ involvements, setInvolvements, employees, projects }) => {
-  const [newInvolvement, setNewInvolvement] = useState({
-    employeeId: '',
-    projectId: '',
-    startDate: '',
-    endDate: '',
-    allocation: '',
-    role: ''
-  });
+const EMPTY_INVOLVEMENT = {
+  employeeId: '',
+  projectId: '',
+  startDate: '',
+  endDate: '',
+  allocation: '',
+  role: '',
+};
+
+const InvolvementManagement = ({
+  involvements,
+  setInvolvements,
+  employees,
+  projects,
+}) => {
+  const [formState, setFormState] = useState(EMPTY_INVOLVEMENT);
   const [editingId, setEditingId] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [employeeFilter, setEmployeeFilter] = useState('all');
+  const [projectFilter, setProjectFilter] = useState('all');
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setNewInvolvement(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  const employeeMap = useMemo(
+    () => new Map(employees.map((e) => [e.id, e])),
+    [employees]
+  );
+  const projectMap = useMemo(
+    () => new Map(projects.map((p) => [p.id, p])),
+    [projects]
+  );
+
+  const filteredInvolvements = useMemo(() => {
+    return involvements.filter((inv) => {
+      if (employeeFilter !== 'all' && inv.employeeId !== employeeFilter) return false;
+      if (projectFilter !== 'all' && inv.projectId !== projectFilter) return false;
+      return true;
+    });
+  }, [involvements, employeeFilter, projectFilter]);
+
+  const closeModal = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setFormState(EMPTY_INVOLVEMENT);
+    setFormError('');
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (formState.endDate && formState.endDate < formState.startDate) {
+      setFormError('End date cannot be earlier than start date.');
+      return;
+    }
+
+    const allocation = parseInt(formState.allocation, 10);
+    if (Number.isNaN(allocation) || allocation < 1 || allocation > 100) {
+      setFormError('Allocation must be between 1% and 100%.');
+      return;
+    }
+
+    const payload = {
+      employeeId: formState.employeeId,
+      projectId: formState.projectId,
+      startDate: formState.startDate,
+      endDate: formState.endDate,
+      allocation,
+      role: formState.role.trim(),
+    };
+
     if (editingId) {
-      setInvolvements(prev => prev.map(inv => 
-        inv.id === editingId ? { 
-          ...newInvolvement, 
-          id: editingId,
-          allocation: parseInt(newInvolvement.allocation)
-        } : inv
-      ));
+      setInvolvements((prev) =>
+        prev.map((inv) => (inv.id === editingId ? { ...inv, ...payload } : inv))
+      );
     } else {
-      setInvolvements(prev => [
+      setInvolvements((prev) => [
         ...prev,
-        {
-          ...newInvolvement,
-          id: Date.now().toString(),
-          allocation: parseInt(newInvolvement.allocation)
-        }
+        { ...payload, id: Date.now().toString() },
       ]);
     }
-    
-    setNewInvolvement({
-      employeeId: '',
-      projectId: '',
-      startDate: '',
-      endDate: '',
-      allocation: '',
-      role: ''
-    });
-    setEditingId(null);
-    setShowForm(false);
+
+    closeModal();
   };
 
-  const handleEdit = (involvement) => {
-    setNewInvolvement({
-      employeeId: involvement.employeeId,
-      projectId: involvement.projectId,
-      startDate: involvement.startDate,
-      endDate: involvement.endDate || '',
-      allocation: involvement.allocation,
-      role: involvement.role
+  const handleEdit = (inv) => {
+    setFormState({
+      employeeId: inv.employeeId,
+      projectId: inv.projectId,
+      startDate: inv.startDate,
+      endDate: inv.endDate || '',
+      allocation: String(inv.allocation),
+      role: inv.role,
     });
-    setEditingId(involvement.id);
+    setEditingId(inv.id);
+    setFormError('');
     setShowForm(true);
   };
 
   const handleDelete = (id) => {
-    if (window.confirm('Are you sure you want to delete this involvement?')) {
-      setInvolvements(prev => prev.filter(inv => inv.id !== id));
+    if (window.confirm('Remove this project allocation?')) {
+      setInvolvements((prev) => prev.filter((inv) => inv.id !== id));
     }
   };
 
-  const getEmployeeName = (employeeId) => {
-    const employee = employees.find(e => e.id === employeeId);
-    return employee ? employee.name : 'Unknown';
-  };
+  const prerequisitesMissing = employees.length === 0 || projects.length === 0;
 
-  const getProjectName = (projectId) => {
-    const project = projects.find(p => p.id === projectId);
-    return project ? project.name : 'Unknown';
-  };
-
-  const calculateDuration = (startDate, endDate) => {
-    const start = new Date(startDate);
-    const end = endDate ? new Date(endDate) : new Date();
-    const months = Math.ceil((end - start) / (1000 * 60 * 60 * 24 * 30));
-    return months;
-  };
+  const selectedEmpAllocation = useMemo(() => {
+    if (!formState.employeeId) return null;
+    return involvements
+      .filter((inv) => inv.employeeId === formState.employeeId && inv.id !== editingId)
+      .reduce((sum, inv) => sum + (Number(inv.allocation) || 0), 0);
+  }, [involvements, formState.employeeId, editingId]);
 
   return (
-    <div className="bg-white rounded-xl shadow-lg p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Project Involvement</h2>
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+            Project Allocations
+          </h2>
+          <p className="text-sm text-slate-500">
+            Assign employees to projects with time-bounded allocation percentages
+          </p>
+        </div>
+
         <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-          disabled={employees.length === 0 || projects.length === 0}
+          type="button"
+          onClick={() => setShowForm(true)}
+          disabled={prerequisitesMissing}
+          className="inline-flex items-center gap-2 self-start rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-45"
         >
-          <Plus size={18} />
-          <span>Add Involvement</span>
+          <Plus size={17} />
+          <span>Add Allocation</span>
         </button>
       </div>
 
-      {/* Warning if no employees or projects */}
-      {(employees.length === 0 || projects.length === 0) && (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <Calendar className="h-5 w-5 text-yellow-400" />
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-yellow-700">
-                You need to add{' '}
-                {employees.length === 0 && 'employees'}
-                {employees.length === 0 && projects.length === 0 && ' and '}
-                {projects.length === 0 && 'projects'}
-                {' '}before adding involvements.
-              </p>
-            </div>
-          </div>
+      {prerequisitesMissing && (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <Calendar size={18} className="shrink-0 text-amber-600" />
+          <span>
+            Add at least one employee and one project before creating allocations.
+          </span>
         </div>
       )}
 
-      {/* Form Modal */}
+      {/* Filters */}
+      {involvements.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+          <select
+            value={employeeFilter}
+            onChange={(e) => setEmployeeFilter(e.target.value)}
+            className="h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700 outline-none focus:border-violet-500"
+          >
+            <option value="all">All Employees</option>
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            className="h-9 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-700 outline-none focus:border-violet-500"
+          >
+            <option value="all">All Projects</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold">
-                {editingId ? 'Edit Involvement' : 'Add New Involvement'}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-900">
+                {editingId ? 'Edit Allocation' : 'New Project Allocation'}
               </h3>
-              <button onClick={() => {
-                setShowForm(false);
-                setEditingId(null);
-                setNewInvolvement({
-                  employeeId: '',
-                  projectId: '',
-                  startDate: '',
-                  endDate: '',
-                  allocation: '',
-                  role: ''
-                });
-              }}>
-                <X className="text-gray-500 hover:text-gray-700" />
+              <button
+                type="button"
+                onClick={closeModal}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Employee</label>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                  Employee
+                </label>
                 <select
-                  name="employeeId"
-                  value={newInvolvement.employeeId}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={formState.employeeId}
+                  onChange={(e) =>
+                    setFormState((p) => ({ ...p, employeeId: e.target.value }))
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500"
                   required
                 >
                   <option value="">Select Employee</option>
-                  {employees.map(employee => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.name} - {employee.role}
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} ({emp.role})
                     </option>
                   ))}
                 </select>
+                {selectedEmpAllocation !== null && (
+                  <p
+                    className={`mt-1 text-xs font-medium ${
+                      selectedEmpAllocation + (Number(formState.allocation) || 0) > 100
+                        ? 'text-rose-600'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    Existing allocation: {selectedEmpAllocation}% &middot; Remaining
+                    capacity: {Math.max(0, 100 - selectedEmpAllocation)}%
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                  Project
+                </label>
                 <select
-                  name="projectId"
-                  value={newInvolvement.projectId}
-                  onChange={handleInputChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={formState.projectId}
+                  onChange={(e) =>
+                    setFormState((p) => ({ ...p, projectId: e.target.value }))
+                  }
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-violet-500"
                   required
                 >
                   <option value="">Select Project</option>
-                  {projects.map(project => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
+                  {projects.map((proj) => (
+                    <option key={proj.id} value={proj.id}>
+                      {proj.name}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role in Project</label>
-                <input
-                  type="text"
-                  name="role"
-                  value={newInvolvement.role}
-                  onChange={handleInputChange}
-                  placeholder="e.g., Developer, Manager, Designer"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Allocation (%)</label>
-                <input
-                  type="number"
-                  name="allocation"
-                  value={newInvolvement.allocation}
-                  onChange={handleInputChange}
-                  min="1"
-                  max="100"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                    Project Role
+                  </label>
                   <input
-                    type="date"
-                    name="startDate"
-                    value={newInvolvement.startDate}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    type="text"
+                    placeholder="e.g., Tech Lead"
+                    value={formState.role}
+                    onChange={(e) =>
+                      setFormState((p) => ({ ...p, role: e.target.value }))
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-violet-500"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                    Allocation (%)
+                  </label>
                   <input
-                    type="date"
-                    name="endDate"
-                    value={newInvolvement.endDate}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={formState.allocation}
+                    onChange={(e) =>
+                      setFormState((p) => ({ ...p, allocation: e.target.value }))
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-violet-500"
+                    required
                   />
-                  <p className="text-xs text-gray-500 mt-1">Leave blank if ongoing</p>
                 </div>
               </div>
 
-              <div className="flex gap-2 pt-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                    Start Date
+                  </label>
+                  <input
+                    type="date"
+                    value={formState.startDate}
+                    onChange={(e) => {
+                      setFormState((p) => ({ ...p, startDate: e.target.value }));
+                      if (formError) setFormError('');
+                    }}
+                    className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-violet-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                    End Date (Optional)
+                  </label>
+                  <input
+                    type="date"
+                    value={formState.endDate}
+                    onChange={(e) => {
+                      setFormState((p) => ({ ...p, endDate: e.target.value }));
+                      if (formError) setFormError('');
+                    }}
+                    className="w-full rounded-xl border border-slate-300 px-3.5 py-2 text-sm outline-none focus:border-violet-500"
+                  />
+                </div>
+              </div>
+
+              {formError && (
+                <p className="flex items-center gap-1.5 text-xs font-medium text-rose-600">
+                  <AlertTriangle size={14} />
+                  <span>{formError}</span>
+                </p>
+              )}
+
+              <div className="flex gap-2.5 pt-2">
                 <button
                   type="submit"
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center justify-center gap-2"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
                 >
-                  <Save size={18} />
-                  {editingId ? 'Update' : 'Save'}
+                  <Save size={16} />
+                  <span>{editingId ? 'Update' : 'Save'}</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowForm(false);
-                    setEditingId(null);
-                    setNewInvolvement({
-                      employeeId: '',
-                      projectId: '',
-                      startDate: '',
-                      endDate: '',
-                      allocation: '',
-                      role: ''
-                    });
-                  }}
-                  className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition"
+                  onClick={closeModal}
+                  className="flex-1 rounded-xl border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-200"
                 >
                   Cancel
                 </button>
@@ -270,105 +354,78 @@ const InvolvementManagement = ({ involvements, setInvolvements, employees, proje
         </div>
       )}
 
-      {/* Involvement List */}
-      <div className="space-y-3">
-        {involvements.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-lg">
-            <Link2 className="mx-auto text-gray-400 mb-3" size={48} />
-            <p className="text-gray-500">No involvements recorded yet</p>
+      {/* List */}
+      {filteredInvolvements.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-14 text-center">
+          <GitBranch className="mx-auto mb-3 text-slate-400" size={40} />
+          <p className="text-sm font-semibold text-slate-700">
+            {involvements.length === 0
+              ? 'No allocations recorded yet'
+              : 'No allocations match your filters'}
+          </p>
+          {involvements.length === 0 && !prerequisitesMissing && (
             <button
+              type="button"
               onClick={() => setShowForm(true)}
-              disabled={employees.length === 0 || projects.length === 0}
-              className="mt-4 text-blue-600 hover:text-blue-700 font-medium disabled:text-gray-400 disabled:cursor-not-allowed"
+              className="mt-3 text-sm font-semibold text-violet-600 hover:text-violet-700"
             >
-              Add your first involvement
+              Create your first allocation
             </button>
-          </div>
-        ) : (
-          involvements.map(involvement => {
-            const duration = calculateDuration(involvement.startDate, involvement.endDate);
-            
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredInvolvements.map((inv) => {
+            const emp = employeeMap.get(inv.employeeId);
+            const proj = projectMap.get(inv.projectId);
+            const months = getElapsedMonths(inv.startDate, inv.endDate);
+
             return (
               <div
-                key={involvement.id}
-                className="bg-gray-50 rounded-lg p-4 hover:shadow-md transition"
+                key={inv.id}
+                className="flex flex-col justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-xs sm:flex-row sm:items-center"
               >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-gray-800">
-                        {getEmployeeName(involvement.employeeId)}
-                      </h3>
-                      <span className="text-gray-400">→</span>
-                      <h3 className="font-semibold text-blue-600">
-                        {getProjectName(involvement.projectId)}
-                      </h3>
-                    </div>
-                    
-                    <p className="text-sm text-gray-600 mt-1">{involvement.role}</p>
-                    
-                    <div className="mt-2 grid grid-cols-2 gap-4">
-                      <p className="text-sm">
-                        <span className="text-gray-500">Allocation:</span>{' '}
-                        <span className="font-medium">{involvement.allocation}%</span>
-                      </p>
-                      <p className="text-sm">
-                        <span className="text-gray-500">Duration:</span>{' '}
-                        <span className="font-medium">{duration} months</span>
-                      </p>
-                      <p className="text-sm">
-                        <span className="text-gray-500">Start:</span>{' '}
-                        <span className="font-medium">{new Date(involvement.startDate).toLocaleDateString()}</span>
-                      </p>
-                      <p className="text-sm">
-                        <span className="text-gray-500">End:</span>{' '}
-                        <span className="font-medium">
-                          {involvement.endDate ? new Date(involvement.endDate).toLocaleDateString() : 'Present'}
-                        </span>
-                      </p>
-                    </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-base font-bold text-slate-900">
+                      {emp ? emp.name : 'Unknown Employee'}
+                    </span>
+                    <span className="text-slate-400">&rarr;</span>
+                    <span className="text-base font-bold text-violet-600">
+                      {proj ? proj.name : 'Unknown Project'}
+                    </span>
+                    <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                      {inv.allocation}%
+                    </span>
                   </div>
-                  
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleEdit(involvement)}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(involvement.id)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
+
+                  <p className="mt-1 text-sm text-slate-600">
+                    {inv.role} &middot; {formatDate(inv.startDate)} to{' '}
+                    {formatDate(inv.endDate)} ({months.toFixed(1)} mo elapsed)
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(inv)}
+                    aria-label="Edit allocation"
+                    className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-violet-600"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(inv.id)}
+                    aria-label="Delete allocation"
+                    className="rounded-lg p-2 text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             );
-          })
-        )}
-      </div>
-
-      {/* Summary Statistics */}
-      {involvements.length > 0 && (
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-blue-50 rounded-lg p-4">
-            <p className="text-sm text-blue-600 font-medium">Total Involvements</p>
-            <p className="text-2xl font-bold text-blue-700">{involvements.length}</p>
-          </div>
-          <div className="bg-green-50 rounded-lg p-4">
-            <p className="text-sm text-green-600 font-medium">Active Employees</p>
-            <p className="text-2xl font-bold text-green-700">
-              {new Set(involvements.map(i => i.employeeId)).size}
-            </p>
-          </div>
-          <div className="bg-purple-50 rounded-lg p-4">
-            <p className="text-sm text-purple-600 font-medium">Active Projects</p>
-            <p className="text-2xl font-bold text-purple-700">
-              {new Set(involvements.map(i => i.projectId)).size}
-            </p>
-          </div>
+          })}
         </div>
       )}
     </div>
